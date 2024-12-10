@@ -1,5 +1,6 @@
-from fastapi import FastAPI, HTTPException
-from pydantic import BaseModel
+from fastapi import FastAPI, HTTPException, Query
+from typing import Optional, List
+from pydantic import BaseModel, Field
 import sqlite3
 
 # Initialize the FastAPI app
@@ -8,7 +9,7 @@ app = FastAPI()
 # Pydantic models for data validation
 class Customer(BaseModel):
     name: str
-    phone: str
+    phone: str = Field(..., pattern=r"^\d{3}-\d{3}-\d{4}$")
 
 class Item(BaseModel):
     name: str
@@ -51,6 +52,45 @@ def get_customer(id: int):
         return dict(row)
     else:
         raise HTTPException(status_code=404, detail="Customer not found")
+
+
+ # Added Filtered Feature
+    
+@app.get("/customers")
+def list_customers(
+    limit: int = Query(10, ge=1, le=100, description="Number of customers to retrieve (1-100)"),
+    name: Optional[str] = Query(None, description="Filter by customer name"),
+    phone: Optional[str] = Query(None, description="Filter by customer phone")
+):
+    conn = connect_db()
+    cursor = conn.cursor()
+
+    # Build the query dynamically based on provided filters
+    query = "SELECT * FROM customers"
+    filters = []
+    params = []
+
+    if name:
+        filters.append("name LIKE ?")
+        params.append(f"%{name}%")
+
+    if phone:
+        filters.append("phone = ?")
+        params.append(phone)
+
+    if filters:
+        query += " WHERE " + " AND ".join(filters)
+
+    query += " LIMIT ?"
+    params.append(limit)
+    cursor.execute(query, tuple(params))
+    rows = cursor.fetchall()
+    conn.close()
+
+    if rows:
+        return [dict(zip([column[0] for column in cursor.description], row)) for row in rows]
+    else:
+        return []
 
 @app.delete("/customers/{id}")
 def delete_customer(id: int):
